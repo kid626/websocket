@@ -1,5 +1,6 @@
 package com.bruce.websocket.config;
 
+import com.bruce.websocket.websocket.CouponWebSocketHandler;
 import com.bruce.websocket.websocket.WebSocketHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
@@ -21,9 +22,13 @@ public class WebsocketConfig implements WebSocketConfigurer {
     @Autowired
     private WebSocketHandler webSocketHandler;
 
+    @Autowired
+    private CouponWebSocketHandler couponWebSocketHandler;
+
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(webSocketHandler, "/v2/my").setAllowedOrigins("*");
+        registry.addHandler(couponWebSocketHandler, "/v2/coupon").setAllowedOrigins("*");
     }
 }
