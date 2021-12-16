@@ -1,22 +1,17 @@
 package com.bruce.websocket.websocket;
 
-import com.alibaba.fastjson.JSON;
-import com.bruce.websocket.entity.RequestContent;
 import com.bruce.websocket.util.UrlUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import javax.websocket.OnClose;
-import javax.websocket.OnMessage;
-import javax.websocket.OnOpen;
-import javax.websocket.Session;
+import javax.websocket.*;
 import javax.websocket.server.ServerEndpoint;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @Copyright Copyright © 2021 fanzh . All rights reserved.
@@ -31,18 +26,9 @@ import java.util.concurrent.CopyOnWriteArraySet;
 public class MyWebSocket {
 
     /**
-     * 静态变量，用来记录当前在线连接数。应该把它设计成线程安全的。
+     * concurrent包的线程安全Map，用来存放每个客户端对应的Session对象。
      */
-    private static int onlineCount = 0;
-    /**
-     * concurrent包的线程安全Set，用来存放每个客户端对应的CumWebSocket对象。
-     */
-    private static CopyOnWriteArraySet<MyWebSocket> webSocketSet = new CopyOnWriteArraySet<>();
-    /**
-     * 与某个客户端的连接会话，需要通过它来给客户端发送数据
-     */
-    private Session session;
-
+    private final static Map<String, Session> CONNECTIONS = new ConcurrentHashMap<>();
 
     /**
      * 连接建立成功调用的方法
@@ -50,28 +36,23 @@ public class MyWebSocket {
      * @param session Session
      */
     @OnOpen
-    public void onOpen(Session session) {
-        log.info("连接建立成功调用的方法");
-        this.session = session;
-        //加入set中
-        webSocketSet.add(this);
-        //添加在线人数
-        addOnlineCount();
-        log.info("有连接建立,当前在线人数为：{}", getOnlineCount());
-
+    public void onOpen(Session session) throws IOException {
+        log.info("连接建立");
+        String id = getId(session);
+        if (StringUtils.isBlank(id)) {
+            close(session);
+            return;
+        }
+        CONNECTIONS.put(id, session);
     }
 
     /**
      * 连接关闭调用的方法
      */
     @OnClose
-    public void onClose() {
-        log.info("连接关闭调用的方法");
-        //从set中删除
-        webSocketSet.remove(this);
-        //在线数减1
-        subOnlineCount();
-        log.info("有连接关闭。当前在线人数为：{}", getOnlineCount());
+    public void onClose(Session session) throws IOException {
+        log.info("连接关闭");
+        close(session);
     }
 
     /**
@@ -83,44 +64,14 @@ public class MyWebSocket {
      */
     @OnMessage
     public void onMessage(String message, Session session) throws IOException {
-        String queryString = session.getQueryString();
-        if (StringUtils.isEmpty(queryString)) {
-            log.error("参数缺失");
+        String id = getId(session);
+        if (StringUtils.isBlank(id)) {
+            close(session);
             return;
         }
-        Map<String, String> map = UrlUtil.getParameter(queryString);
-        RequestContent content = JSON.parseObject(JSON.toJSONString(map), RequestContent.class);
-        log.info("content={}", content);
-        sendMessage(message);
+        sendMessage(id, message);
     }
 
-    /**
-     * 暴露给外部的群发
-     *
-     * @param message
-     * @throws IOException
-     */
-    public static void sendInfo(String message) throws IOException {
-        sendAll(message);
-    }
-
-
-    /**
-     * 群发
-     *
-     * @param message 消息
-     */
-    private static void sendAll(String message) {
-        Arrays.asList(webSocketSet.toArray()).forEach(item -> {
-            MyWebSocket socket = (MyWebSocket) item;
-            //群发
-            try {
-                socket.sendMessage(message);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        });
-    }
 
     /**
      * 发生错误时调用
@@ -128,62 +79,47 @@ public class MyWebSocket {
      * @param session Session
      * @param error   Throwable
      */
+    @OnError
     public void onError(Session session, Throwable error) {
         log.info("发生错误");
         error.printStackTrace();
     }
 
-    /**
-     * 减少在线人数
-     */
-    private void subOnlineCount() {
-        MyWebSocket.onlineCount--;
+    private void close(Session session) throws IOException {
+        String id = getId(session);
+        if (StringUtils.isNotBlank(id)) {
+            CONNECTIONS.remove(id);
+        }
+        session.close();
     }
 
-    /**
-     * 添加在线人数
-     */
-    private void addOnlineCount() {
-        MyWebSocket.onlineCount++;
-    }
-
-    /**
-     * 当前在线人数
-     *
-     * @return
-     */
-    public static synchronized int getOnlineCount() {
-        return onlineCount;
+    private String getId(Session session) {
+        String queryString = session.getQueryString();
+        Map<String, String> map = UrlUtil.getParameter(queryString);
+        return map.get("id");
     }
 
     /**
      * 发送信息
-     *
-     * @param message
-     * @throws IOException
      */
-    public void sendMessage(String message) throws IOException {
-        //获取session远程基本连接发送文本消息
-        this.session.getBasicRemote().sendText(message);
-        //this.session.getAsyncRemote().sendText(message);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
+    public void sendMessage(String id, String message) throws IOException {
+        Session session = CONNECTIONS.get(id);
+        if (session != null) {
+            //获取session远程基本连接发送文本消息
+            session.getBasicRemote().sendText(message);
         }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
+    }
+
+    /**
+     * 定时清理过期连接
+     */
+    @Scheduled(cron = "1 1,30 * * * ?")
+    private void timerClean() throws IOException {
+        log.info("websocket clean start");
+        Set<String> keySet = CONNECTIONS.keySet();
+        for (String key : keySet) {
+            close(CONNECTIONS.get(key));
         }
-
-        MyWebSocket that = (MyWebSocket) o;
-
-        return Objects.equals(session, that.session);
     }
 
-    @Override
-    public int hashCode() {
-        return session != null ? session.hashCode() : 0;
-    }
 }

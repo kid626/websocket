@@ -45,19 +45,11 @@ public class CouponWebSocketHandler extends TextWebSocketHandler {
      * 定时清理过期连接
      */
     @Scheduled(cron = "1 1,30 * * * ?")
-    private void timerClean() {
+    private void timerClean() throws IOException {
         log.info("websocket clean start");
-        Set<Map.Entry<String, WebSocketSession>> set = CONNECTIONS.entrySet();
-        for (Map.Entry<String, WebSocketSession> sessionMap : set) {
-            if (!sessionMap.getValue().isOpen()) {
-                try {
-                    sessionMap.getValue().close();
-                } catch (IOException e) {
-                    log.error("websocket close error:{}", e.getMessage(), e);
-                }
-                CONNECTIONS.remove(sessionMap.getKey());
-
-            }
+        Set<String> keySet = CONNECTIONS.keySet();
+        for (String key : keySet) {
+            close(CONNECTIONS.get(key));
         }
     }
 
@@ -93,6 +85,7 @@ public class CouponWebSocketHandler extends TextWebSocketHandler {
         String couponId = getCouponId(session);
         if (couponId == null) {
             close(session);
+            return;
         }
         //将连接信息放到CONNECTIONS中
         CONNECTIONS.put(couponId, session);
