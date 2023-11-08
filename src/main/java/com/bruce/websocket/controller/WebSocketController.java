@@ -30,6 +30,16 @@ public class WebSocketController {
         return "index";
     }
 
+    @RequestMapping("qrCode")
+    public String qrCode() {
+        return "qrCode";
+    }
+
+    @RequestMapping("login")
+    public String login() {
+        return "login";
+    }
+
 
     /**
      * 广播发送消息，将消息发送到指定的目标地址

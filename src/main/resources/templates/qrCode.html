@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>二维码</title>
+    <script type="text/javascript" src="/js/jquery-3.1.1.js"></script>
+    <script>
+        $(document).ready(function () {
+            initQrImg();
+        });
+
+
+        function initQrImg() {
+            $("#qrImgDiv").empty();
+
+            var xmlhttp;
+            xmlhttp = new XMLHttpRequest();
+            xmlhttp.open("GET", getQrPath, true);
+            xmlhttp.responseType = "blob";
+            xmlhttp.onload = function () {
+                console.log(this);
+                uuid = this.getResponseHeader("uuid");
+
+                if (this.status == 200) {
+                    var blob = this.response;
+                    var img = document.createElement("img");
+                    img.className = 'qrCodeBox-img';
+                    img.onload = function (e) {
+                        window.URL.revokeObjectURL(img.src);
+                    };
+                    img.src = window.URL.createObjectURL(blob);
+                    document.getElementById("qrImgDiv").appendChild(img);
+
+                    initWebSocket();
+                }
+            }
+            xmlhttp.send();
+        }
+
+
+        var path = "://localhost:8080";
+        var getQrPath = "http" + path + "/getQrCode";
+        var wsPath = "ws" + path + "/qrCode/";
+
+
+        function initWebSocket() {
+
+            if (typeof (WebSocket) == "undefined") {
+                console.log("您的浏览器不支持WebSocket");
+            } else {
+                console.log("您的浏览器支持WebSocket");
+                //实现化WebSocket对象，指定要连接的服务器地址与端口  建立连接
+                //等同于socket = new WebSocket("ws://localhost:8083/checkcentersys/websocket/20");
+                var wsPathStr = wsPath + uuid;
+                socket = new WebSocket(wsPathStr);
+                //打开事件
+                socket.onopen = function () {
+                    console.log("Socket 已打开");
+                    //socket.send("这是来自客户端的消息" + location.href + new Date());
+                };
+                //获得消息事件
+                socket.onmessage = function (msg) {
+                    console.log(msg.data);
+                    var data = JSON.parse(msg.data);
+                    if (data.code == 200) {
+                        alert("登录成功！");
+                        //这里存放自己业务需要的数据。怎么放自己看
+                        window.sessionStorage.uuid = uuid;
+                        window.sessionStorage.msg = data.msg;
+                        window.location.href = "login"
+                    } else {
+                        //如果过期了，关闭连接、重置连接、刷新二维码
+                        socket.close();
+                        initQrImg();
+                    }
+                    //发现消息进入    开始处理前端触发逻辑
+                };
+                //关闭事件
+                socket.onclose = function () {
+                    console.log("Socket已关闭");
+                };
+                //发生了错误事件
+                socket.onerror = function () {
+                    alert("Socket发生了错误");
+                    //此时可以尝试刷新页面
+                }
+            }
+
+        }
+    </script>
+</head>
+
+<body>
+<div class="qrCodeImg-box" id="qrImgDiv"></div>
+</body>
+
+</html>
